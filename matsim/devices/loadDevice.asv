@@ -1,0 +1,503 @@
+function [ckt, data] = loadDevice(ckt, deviceIndex, data, info)
+
+global MODE_DC
+global MODE_TRAN
+global MODE_SEN
+global MODE_SEN2
+
+dev = ckt.devices{deviceIndex};
+thisDeviceParmIndices = info.thisDeviceParmIndices;
+notImplemented = 'Sensitivity computation is not implemented for this device';
+noSuchParameter = 'Unsupported device parameter for sensitivity computation';
+
+% - load devce -
+switch dev.type
+    
+    case 'P'        
+        if info.mode >= MODE_DC
+            % - dc and transient -
+            K = dev.coeffs;
+            if(dev.nodeP) vp = data.x(dev.nodeP); else vp = 0; end
+            if(dev.nodeN) vn = data.x(dev.nodeN); else vn = 0; end
+            v = vp - vn;
+            ip = 0;
+            Gpp = 0;
+            for k=1:length(K)
+                ip = ip + K(k)*v^(k-1);
+                if k > 1
+                    Gpp = Gpp + (k-1)*K(k)*v^(k-2);
+                end
+            end
+            % - i -
+            if(dev.nodeP) data.i(dev.nodeP) = data.i(dev.nodeP) +ip; end
+            if(dev.nodeN) data.i(dev.nodeN) = data.i(dev.nodeN) -ip; end
+            % - G -
+            if(dev.senPP) data.G(dev.senPP) = data.G(dev.senPP) +Gpp; end
+            if(dev.senNN) data.G(dev.senNN) = data.G(dev.senNN) +Gpp; end
+            if(dev.senPN) data.G(dev.senPN) = data.G(dev.senPN) -Gpp; end
+            if(dev.senNP) data.G(dev.senNP) = data.G(dev.senNP) -Gpp; end
+            if info.mode >= MODE_SEN
+                % - loop through sensitivity parameters present in this device -
+                for par = thisDeviceParmIndices
+                    error(notImplemented);
+                end
+                if info.mode >= MODE_SEN2
+%                     error(notImplemented);                    
+                end
+            end
+        end
+        
+    case 'G'
+        if info.mode >= MODE_DC
+            % - dc and transient -
+            % - transconductance -
+            Gpp = dev.transConductance;
+            % - nodal voltages -
+            if(dev.nodeVoltageSensorP) vp = data.x(dev.nodeVoltageSensorP); else vp = 0; end
+            if(dev.nodeVoltageSensorN) vn = data.x(dev.nodeVoltageSensorN); else vn = 0; end
+            % - current -
+            ip = k*(vp-vn);
+            % - i -
+            if(dev.nodeCurrentSourceP) data.i(dev.nodeCurrentSourceP) = data.i(dev.nodeCurrentSourceP) +ip; end
+            if(dev.nodeCurrentSourceN) data.i(dev.nodeCurrentSourceN) = data.i(dev.nodeCurrentSourceN) -ip; end
+            % - G -
+            if(dev.senPP) data.G(dev.senPP) = data.G(dev.senPP) +Gpp; end
+            if(dev.senNN) data.G(dev.senNN) = data.G(dev.senNN) +Gpp; end
+            if(dev.senPN) data.G(dev.senPN) = data.G(dev.senPN) -Gpp; end
+            if(dev.senNP) data.G(dev.senNP) = data.G(dev.senNP) -Gpp; end
+            if info.mode >= MODE_SEN
+                % - loop through sensitivity parameters present in this device -
+                for par = thisDeviceParmIndices
+                    error(notImplemented);
+                end
+                if info.mode >= MODE_SEN2
+                    error(notImplemented);                    
+                end
+            end
+        end
+        
+    case 'R'
+        % - equations -
+        % KCL (at nodeP)            : 0 = ...  +G*(+vp-vn) ...
+        % KCL (at nodeN)            : 0 = ...  -G*(+vp-vn) ...
+        %
+        % - unknowns -              :             { vp vn }
+        %
+        % - linearization -
+        %
+        % static function i(v(t))   : i(v) = [ +G*(+vp-vn) ] = [ +ip ]
+        %                                    [ -G*(+vp-vn) ]   [ -ip ]
+        % its Jacobian  di(v(t))/dv : G(v) = [      +G -G  ]
+        %                                    [      -G +G  ]
+        % dynamic variable  q(v(t)) : q(v) = []
+        %                                    []
+        % its Jacobian  dq(v(t))/dv : C(v) = []
+        %                                    []
+        %
+        k = 1.38062e-23;
+        T = 300;
+        if info.mode >= MODE_DC
+            % - dc and transient -
+            % - conductance -
+            Gpp = 1/dev.resistance;
+            % - nodal voltages -
+            if(dev.nodeP) vp = data.x(dev.nodeP); else vp = 0; end
+            if(dev.nodeN) vn = data.x(dev.nodeN); else vn = 0; end
+            % - current -
+            ip = Gpp*(vp-vn);
+            % - i -
+            if(dev.nodeP) data.i(dev.nodeP) = data.i(dev.nodeP) +ip; end
+            if(dev.nodeN) data.i(dev.nodeN) = data.i(dev.nodeN) -ip; end
+            % - G -
+            if(dev.senPP) data.G(dev.senPP) = data.G(dev.senPP) +Gpp; end
+            if(dev.senNN) data.G(dev.senNN) = data.G(dev.senNN) +Gpp; end
+            if(dev.senPN) data.G(dev.senPN) = data.G(dev.senPN) -Gpp; end
+            if(dev.senNP) data.G(dev.senNP) = data.G(dev.senNP) -Gpp; end
+            % - white noise -
+            multNw = 4*k*T;
+            Nw = Gpp*multNw;
+            if(dev.senPP) data.Nw(dev.senPP) = data.Nw(dev.senPP) +Nw; end
+            if(dev.senNN) data.Nw(dev.senNN) = data.Nw(dev.senNN) +Nw; end
+            if(dev.senPN) data.Nw(dev.senPN) = data.Nw(dev.senPN) -Nw; end
+            if(dev.senNP) data.Nw(dev.senNP) = data.Nw(dev.senNP) -Nw; end
+            if info.mode >= MODE_SEN
+                % - loop through sensitivity parameters present in this device -
+                for par = thisDeviceParmIndices
+                    % - compute vector and matrix entries -
+                    switch info.parms{par}.name
+                        case 'res'
+                            dGpp_dpar = -Gpp*Gpp;
+                        case 'cond'
+                            dGpp_dpar = 1;
+                        otherwise
+                            error(noSuchParameter)
+                    end
+                    % - populate vectors and matrices -
+                    % - di/dpar -
+                    dip_dpar = dGpp_dpar*(vp-vn);
+                    data.didpar = addElement(data.didpar, dev.nodeP, par, +dip_dpar);
+                    data.didpar = addElement(data.didpar, dev.nodeN, par, -dip_dpar);
+                    if info.mode >= MODE_SEN2
+                        if par
+                            % - dG/dpar -
+                            % error('Fix here!')
+                            if(dev.senPP) data.dGdpar{par}(dev.senPP) = data.dGdpar{par}(dev.senPP) +dGpp_dpar; end
+                            if(dev.senNN) data.dGdpar{par}(dev.senNN) = data.dGdpar{par}(dev.senNN) +dGpp_dpar; end
+                            if(dev.senPN) data.dGdpar{par}(dev.senPN) = data.dGdpar{par}(dev.senPN) -dGpp_dpar; end
+                            if(dev.senNP) data.dGdpar{par}(dev.senNP) = data.dGdpar{par}(dev.senNP) -dGpp_dpar; end
+                            % - dNw/dpar (white noise sensitivity)-
+                            dNw = dGpp_dpar*multNw;
+                            if(dev.senPP) data.dNw_dpar{par}(dev.senPP) = data.dNw_dpar{par}(dev.senPP) +dNw; end
+                            if(dev.senNN) data.dNw_dpar{par}(dev.senNN) = data.dNw_dpar{par}(dev.senNN) +dNw; end
+                            if(dev.senPN) data.dNw_dpar{par}(dev.senPN) = data.dNw_dpar{par}(dev.senPN) -dNw; end
+                            if(dev.senNP) data.dNw_dpar{par}(dev.senNP) = data.dNw_dpar{par}(dev.senNP) -dNw; end
+                        end
+                    end
+                end
+            end
+        end
+        
+    case 'L'
+        % - equations -
+        % KCL (at nodeP)            : 0 = ...            +ip ...
+        % KCL (at nodeN)            : 0 = ...            -ip ...
+        % KCL (at eqn)              : 0 =     +vp -vn -L*dip/dt
+        %
+        % - variables -             : v =    { vp  vn     ip }
+        %
+        % - linearization -
+        %
+        % static function   i(v(t)) : i(v) = [           +ip ]
+        %                                    [           -ip ]
+        %                                    [ +vp -vn       ]
+        %
+        % its Jacobian  di(v(t))/dv : G(v) = [            +1 ]
+        %                                    [            -1 ]
+        %                                    [  +1  -1       ]
+        %
+        % dynamic variable  q(v(t)) : q(v) = [               ]
+        %                                    [               ]
+        %                                    [         -L*ip ]
+        %
+        % its Jacobian  dq(v(t))/dv : C(v) = [               ]
+        %                                    [               ]
+        %                                    [            -L ]       
+        %
+        if info.mode >= MODE_DC
+            % - inductance -
+            L = dev.inductance;
+            % - variables -
+            if(dev.nodeP) vp = data.x(dev.nodeP); else vp = 0; end
+            if(dev.nodeN) vn = data.x(dev.nodeN); else vn = 0; end
+                          ip = data.x(dev.unkn );
+            Gpp = 1;
+            % - i -
+            if(dev.nodeP) data.i(dev.nodeP) = data.i(dev.nodeP) +ip;      end
+            if(dev.nodeN) data.i(dev.nodeN) = data.i(dev.nodeN) -ip;      end
+                          data.i(dev.eqn)   = data.i(dev.eqn)   +vp-vn;
+            % - G -
+            if(dev.senPU) data.G(dev.senPU) = data.G(dev.senPU) +Gpp; end
+            if(dev.senNU) data.G(dev.senNU) = data.G(dev.senNU) -Gpp; end
+            if(dev.senEP) data.G(dev.senEP) = data.G(dev.senEP) +Gpp; end
+            if(dev.senEN) data.G(dev.senEN) = data.G(dev.senEN) -Gpp; end
+            if info.mode >= MODE_TRAN
+                % - q -
+                data.q(dev.eqn)   = data.q(dev.eqn)   -L*ip;
+                % - C -
+                data.C(dev.senEU) = data.C(dev.senEU) -L;
+                if info.mode >= MODE_SEN
+                    % - loop through sensitivity parameters present in this device -
+                    for par = thisDeviceParmIndices
+                        switch info.parms{par}.name
+                            case 'ind'
+                                % - dq/dpar -
+                                if(dev.eqn) data.dqdpar(dev.eqn, par) = data.dqdpar(dev.eqn, par) -ip ; end
+                                if info.mode >= MODE_SEN2
+                                    % - dC/dpar -
+                                    if(dev.senEU) data.dCdpar{par}(dev.senEU) = data.dCdpar{par}(dev.senEU) -1; end 
+                                end
+                            otherwise
+                                error(noSuchParameter)
+                        end
+                    end
+                end
+            end
+        end
+        
+    case 'C'
+        % - equations -
+        % KCL (at nodeP)            : 0 = ... +C*d(+vp-vn)/dt ...
+        % KCL (at nodeN)            : 0 = ... -C*d(+vp-vn)/dt ...
+        %
+        % - unknowns -              :             { vp vn }
+        %
+        % - linearization -
+        %
+        % static function i(v(t))   : i(v) = []
+        %                                    []
+        %
+        % its Jacobian  di(v(t))/dv : G(v) = []
+        %                                    []
+        %
+        % dynamic variable  q(v(t)) : q(v) = [ +C*(+vp-vn) ] = [ +qp ]
+        %                                    [ -C*(+vp-vn) ]   [ -qp ]
+        %
+        % its Jacobian  dq(v(t))/dv : C(v) = [     +C  -C  ]
+        %                                    [     -C  +C  ]
+        if info.mode >= MODE_TRAN
+            % - transient -
+            % - capacitance -
+            Cpp = dev.capacitance;
+            % - variables -
+            if(dev.nodeP) vp = data.x(dev.nodeP); else vp = 0; end
+            if(dev.nodeN) vn = data.x(dev.nodeN); else vn = 0; end
+            % - charge -
+            qp = Cpp*(vp-vn);
+            % - q -
+            if(dev.nodeP) data.q(dev.nodeP) = data.q(dev.nodeP) +qp; end
+            if(dev.nodeN) data.q(dev.nodeN) = data.q(dev.nodeN) -qp; end
+            % - C -
+            if(dev.senPP) data.C(dev.senPP) = data.C(dev.senPP) +Cpp; end
+            if(dev.senNN) data.C(dev.senNN) = data.C(dev.senNN) +Cpp; end
+            if(dev.senPN) data.C(dev.senPN) = data.C(dev.senPN) -Cpp; end
+            if(dev.senNP) data.C(dev.senNP) = data.C(dev.senNP) -Cpp; end
+            if info.mode >= MODE_SEN
+                % - loop through sensitivity parameters present in this device -
+                for par = thisDeviceParmIndices
+                    switch info.parms{par}.name
+                        case 'cap'
+                            % - dq/dpar -
+                            dqp_dpar = vp-vn;
+                            data.dqdpar = addElement(data.dqdpar, dev.nodeP, par, +dqp_dpar);
+                            data.dqdpar = addElement(data.dqdpar, dev.nodeN, par, -dqp_dpar);
+                            if info.mode >= MODE_SEN2
+                                % - dC/dpar -
+                                dCpp_dpar = 1;
+                                data.dCdpar{par} = addElement(data.dCdpar{par}, dev.nodeP, dev.nodeP, +dCpp_dpar);
+                                data.dCdpar{par} = addElement(data.dCdpar{par}, dev.nodeN, dev.nodeN, +dCpp_dpar);
+                                data.dCdpar{par} = addElement(data.dCdpar{par}, dev.nodeP, dev.nodeN, -dCpp_dpar);
+                                data.dCdpar{par} = addElement(data.dCdpar{par}, dev.nodeN, dev.nodeP, -dCpp_dpar);
+                            end
+                        otherwise
+                            error(noSuchParameter)
+                    end
+                end
+            end
+        end
+        
+    case 'I'
+        % - equations -
+        % KCL (at nodeP)            : 0 = ...  +I ...
+        % KCL (at nodeN)            : 0 = ...  -I ...
+        %
+        % - variables -             : v =    {}
+        %
+        % - linearization -
+        %
+        % static function   i(v(t)) : i(v) = [ +I ]
+        %                                    [ -I ]
+        %
+        % its Jacobian  di(v(t))/dv : G(v) = []
+        %                                    []
+        %
+        % dynamic variable  q(v(t)) : q(v) = []
+        %                                    []
+        %
+        % its Jacobian  dq(v(t))/dv : C(v) = []
+        %                                    []
+        %
+        if info.mode >= MODE_DC
+            % - i -
+            ip = dev.current;
+            if(dev.nodeP) data.i(dev.nodeP) = data.i(dev.nodeP) +ip; end
+            if(dev.nodeN) data.i(dev.nodeN) = data.i(dev.nodeN) -ip; end
+            if info.mode >= MODE_TRAN
+                if isfield(dev, 'amplitude')
+                    A = dev.amplitude;
+                    f = dev.freq;
+                    phase = dev.phase;
+                    t = info.time;
+                    value = A*sin(2*pi*f*t+phase);
+                    % - i -
+                    if(dev.nodeP) data.i(dev.nodeP) = data.i(dev.nodeP) +value; end
+                    if(dev.nodeN) data.i(dev.nodeN) = data.i(dev.nodeN) -value; end
+                end
+                if info.mode >= MODE_SEN
+                    % - loop through sensitivity parameters present in this device -
+                    for par = thisDeviceParmIndices
+                        switch info.parms{par}.name
+                            case 'cur'
+                                % - di/dpar -
+                                dip_dpar = 1;
+                                data.didpar = addElement(data.didpar, dev.nodeP, par, +dip_dpar);
+                                data.didpar = addElement(data.didpar, dev.nodeN, par, -dip_dpar);
+                            otherwise
+                                error(noSuchParameter)
+                        end
+                    end
+                end
+            end
+        end
+        
+    case 'V'
+        % - equations -
+        % KCL (at nodeP)            : 0 = ...            +ip ...
+        % KCL (at nodeN)            : 0 = ...            -ip ...
+        % KCL (at eqn)              : 0 =     +vp -vn -V
+        %
+        % - variables -             : v =    { vp  vn     ip }
+        %
+        % - linearization -
+        %
+        % static function   i(v(t)) : i(v) = [           +ip ]
+        %                                    [           -ip ]
+        %                                    [ +vp -vn -V    ]
+        %
+        % its Jacobian  di(v(t))/dv : G(v) = [            +1 ]
+        %                                    [            -1 ]
+        %                                    [  +1  -1       ]
+        %
+        % dynamic variable  q(v(t)) : q(v) = []
+        %                                    []
+        %                                    []
+        %
+        % its Jacobian  dq(v(t))/dv : C(v) = []
+        %                                    []
+        %                                    []       
+        %
+        if info.mode >= MODE_DC
+            V = dev.voltage;
+            % - variables -
+            if(dev.nodeP) vp = data.x(dev.nodeP); else vp = 0; end
+            if(dev.nodeN) vn = data.x(dev.nodeN); else vn = 0; end
+                          ip = data.x(dev.unkn );
+            % - i -
+            if(dev.nodeP) data.i(dev.nodeP) = data.i(dev.nodeP) +ip;      end
+            if(dev.nodeN) data.i(dev.nodeN) = data.i(dev.nodeN) -ip;      end
+                          data.i(dev.eqn)   = data.i(dev.eqn)   +vp-vn-V;
+            % - G -
+            Gpp = 1;
+            if(dev.senPU) data.G(dev.senPU) = data.G(dev.senPU) +Gpp; end
+            if(dev.senNU) data.G(dev.senNU) = data.G(dev.senNU) -Gpp; end
+            if(dev.senEP) data.G(dev.senEP) = data.G(dev.senEP) +Gpp; end
+            if(dev.senEN) data.G(dev.senEN) = data.G(dev.senEN) -Gpp; end
+            if info.mode >= MODE_TRAN
+                if isfield(dev, 'amplitude')
+                    A = dev.amplitude;
+                    f = dev.freq;
+                    phase = dev.phase;
+                    t = info.time;
+                    sinusoidal = A*sin(2*pi*f*t+phase);
+                    % - i -
+                    data.i(dev.eqn) = data.i(dev.eqn) -sinusoidal;
+                elseif isfield(dev, 'pwc')
+                    if ~info.time
+                        value = dev.pwc.value(1);
+                    else
+                        piece = find(dev.pwc.time < info.time);
+                        value = dev.pwc.value(piece(length(piece)));
+                    end
+                    % - i -
+                    data.i(dev.eqn) = data.i(dev.eqn) -value;
+                elseif isfield(dev, 'pwl')
+                    if ~info.time
+                        value = dev.pwl.value(1);
+                    else
+                        piece = find(dev.pwl.time < info.time);
+                        t1 = dev.pwl.time( piece(length(piece))  );
+                        v1 = dev.pwl.value(piece(length(piece))  );
+                        t2 = dev.pwl.time( piece(length(piece))+1);
+                        v2 = dev.pwl.value(piece(length(piece))+1);
+                        value = interp1([t1 t2],[v1 v2],info.time);
+                    end
+                    % - i -
+                    data.i(dev.eqn) = data.i(dev.eqn) -value;
+                end
+                if info.mode >= MODE_SEN
+                    % - loop through sensitivity parameters present in this device -
+                    for par = thisDeviceParmIndices
+                        switch info.parms{par}.name
+                            case 'vol'
+                                % - di/dpar -
+                                if isfield(dev, 'pwl')
+                                    point = 2;
+                                    t1 = dev.pwl.time( point  );
+                                    t2 = dev.pwl.time( point+1);
+                                    t3 = dev.pwl.time( point+2);
+                                    t4 = dev.pwl.time( point+3);
+                                    if info.time > t1 & info.time < t4
+                                        value = interp1([t1 t2 t3 t4], [0 1 1 0], info.time);                  
+                                    else
+                                        value = 0;
+                                    end
+                                    data.didpar = addElement(data.didpar, dev.eqn,   par, -value);
+                                else
+                                    data.didpar = addElement(data.didpar, dev.eqn,   par, -1);
+                                end
+                            case {'period', 'freq'}
+                                % - sensitivity to pariod in the normalized time is zero -
+                            case 'amplitude'
+                                % - di/dpar -
+                                data.didpar = addElement(data.didpar, dev.eqn,   par, -sinusoidal/A);
+                            case 'piece2Location'
+                                piece = 2;
+                                t1 = dev.pwl.time( piece  );
+                                t2 = dev.pwl.time( piece+1);
+                                v1 = dev.pwl.value(piece  );
+                                v2 = dev.pwl.value(piece+1);
+                                if info.time > (t1+1e-15) & info.time < (t2-1e-15)
+                                    value = -(v2-v1)/(t2-t1);                    
+                                else
+                                    value = 0;
+                                end
+                                data.didpar = addElement(data.didpar, dev.eqn,   par, -value);
+                            otherwise
+                                error(noSuchParameter)
+                        end
+                    end
+                end
+            end
+        end
+        
+    case 'M'
+        % - load transistor -
+        switch ckt.models{dev.model}.model
+            case 'mosRabaey'
+                [data, dev] = loadMOSFET_Rabaey(ckt, deviceIndex, data, info, dev, thisDeviceParmIndices);
+            case 'BSIM3'
+                error('Who wants to implement BSIM3?');
+        end
+        
+    % - add Diode by Fang -
+    case 'D'
+        [data, dev] = loadDiode()
+%         if info.mode >= MODE_DC
+             % - transient -
+%             % - load parameter -
+%             Is =  ckt.models{dev.model}.Is;
+%             n = ckt.models{dev.model}.n;
+%             vt = ckt.models{dev.model}.vt;
+%              % - variables -
+%             if(dev.nodeP) vp = data.x(dev.nodeP); else vp = 0; end
+%             if(dev.nodeN) vn = data.x(dev.nodeN); else vn = 0; end
+%             % - current -
+%             Id0 = Is*(exp((vp-vn)/(n*vt))-1);
+%             Gd0 = (Is/(n*vt))*exp((vp-vn)/(n*vt));
+%             Idn0 = Id0 - Gd0*(vp-vn);
+%              % - i -
+%             if(dev.nodeP) data.i(dev.nodeP) = data.i(dev.nodeP) + Idn0; end
+%             if(dev.nodeN) data.i(dev.nodeN) = data.i(dev.nodeN) - Idn0; end
+%             % - G -
+%             if(dev.senPP) data.G(dev.senPP) = data.G(dev.senPP) +Gd0; end
+%             if(dev.senNN) data.G(dev.senNN) = data.G(dev.senNN) +Gd0; end
+%             if(dev.senPN) data.G(dev.senPN) = data.G(dev.senPN) -Gd0; end
+%             if(dev.senNP) data.G(dev.senNP) = data.G(dev.senNP) -Gd0; end
+        end
+    % - END -
+    otherwise
+        ckt = reportError(ckt, ['Unknown type of device ''',dev.name,'''']);
+        return
+end
+% - save device (state of some devices may have been changed) -
+ckt.devices{deviceIndex} = dev;
+return

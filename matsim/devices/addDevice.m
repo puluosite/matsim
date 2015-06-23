@@ -1,0 +1,254 @@
+function ckt = addDevice(ckt, deviceName, nodes, deviceParms)
+
+global VOLTAGE_UNIT
+global CURRENT_UNIT
+
+for i=1:ckt.numDevices
+    if strcmp(ckt.devices{i}.name, deviceName)
+        error(['Device ''',deviceName,''' already exists']);
+        return
+    end
+end
+
+device.type = deviceName(1);  % type is denoted by first letter of deviceName
+device.name = deviceName;
+
+% - add nodes to the circuit and introduce equations/unknowns
+for i=1:length(nodes)
+    [ckt, nodeIndices(i)] = addNode(ckt, nodes{i});
+end
+
+switch device.type
+    % - polynomial current source -
+    case 'P'
+        device.nodeP = nodeIndices(1);
+        device.nodeN = nodeIndices(2);
+        for i=1:length(deviceParms)/2
+            parmName = deviceParms{2*(i-1)+1};
+            parmValue = deviceParms{2*i};
+            switch parmName
+                case 'coeffs'
+                    device.coeffs = parmValue;
+                otherwise
+                    error(['Unknown parameter ''',parmName,''' of device ''',deviceName,'''']);
+                    return
+            end
+        end
+   
+    % - transconductance -    
+    case 'G'
+        device.nodeCurrentSourceP = nodeIndices(1);
+        device.nodeCurrentSourceN = nodeIndices(2);
+        device.nodeVoltageSensorP = nodeIndices(3);
+        device.nodeVoltageSensorN = nodeIndices(4);
+        for i=1:length(deviceParms)/2
+            parmName = deviceParms{2*(i-1)+1};
+            parmValue = deviceParms{2*i};
+            switch parmName
+                case 'k'
+                    device.transConductance = parmValue;
+                otherwise
+                    error(['Unknown parameter ''',parmName,''' of device ''',deviceName,'''']);
+                    return
+            end
+        end
+        
+    % - resistor -    
+    case 'R'
+        device.nodeP = nodeIndices(1);
+        device.nodeN = nodeIndices(2);
+        for i=1:length(deviceParms)/2
+            parmName = deviceParms{2*(i-1)+1};
+            parmValue = deviceParms{2*i};
+            switch parmName
+                case 'res'
+                    device.resistance = parmValue;
+                otherwise
+                    error(['Unknown parameter ''',parmName,''' of device ''',deviceName,'''']);
+                    return
+            end
+        end
+        
+    % - capacitor -    
+    case 'C'
+        device.nodeP = nodeIndices(1);
+        device.nodeN = nodeIndices(2);
+        % - set default device parameters -
+        device.icGiven = 0;
+        % - set/overload device parameters -
+        for i=1:length(deviceParms)/2
+            parmName = deviceParms{2*(i-1)+1};
+            parmValue = deviceParms{2*i};
+            switch parmName
+                case 'cap'
+                    device.capacitance = parmValue;
+                case 'ic'
+                    device.icGiven = 1;
+                    device.initCond = parmValue;
+                    error('Can not handle capacitor IC.');
+                otherwise
+                    error(['Unknown parameter ''',parmName,''' of device ''',deviceName,'''']);
+                    return
+            end
+        end
+        
+    % - inductor -
+    case 'L'
+        device.nodeP = nodeIndices(1);
+        device.nodeN = nodeIndices(2);
+        % - introduce additional equation and unknown -
+        eqnName = ['BCE for ',device.name];
+        eqnUnit = VOLTAGE_UNIT;
+        unknName = ['i(',device.name,')'];
+        unknUnit = CURRENT_UNIT;
+        [ckt, device.eqn, device.unkn] = addEqnUnkn(ckt, eqnName, eqnUnit, unknName, unknUnit);
+        % - set default device parameters -
+%         device.icGiven = 0;
+        % - set/overload device parameters -
+        for i=1:length(deviceParms)/2
+            parmName = deviceParms{2*(i-1)+1};
+            parmValue = deviceParms{2*i};
+            switch parmName
+                case 'ind'
+                    device.inductance = parmValue;
+%                 case 'ic'
+%                     device.icGiven = 1;
+%                     device.initCond = parmValue;
+                otherwise
+                    error(['Unknown parameter ''',parmName,''' of device ''',deviceName,'''']);
+                    return
+            end
+        end
+        
+    % - current source -    
+    case 'I'
+        device.nodeP = nodeIndices(1);
+        device.nodeN = nodeIndices(2);
+        device.phase = 0;
+        for i=1:length(deviceParms)/2
+            parmName = deviceParms{2*(i-1)+1};
+            parmValue = deviceParms{2*i};
+            switch parmName
+                case 'cur'
+                    device.current = parmValue;
+                case 'amplitude'
+                    device.amplitude = parmValue;
+                case 'freq'
+                    device.freq = parmValue;
+                case 'phase'
+                    device.phase = parmValue;
+                otherwise
+                    error(['Unknown parameter ''',parmName,''' of device ''',deviceName,'''']);
+                    return
+            end
+        end
+        
+    % - voltage source -    
+    case 'V'
+        device.nodeP = nodeIndices(1);
+        device.nodeN = nodeIndices(2);
+        % - introduce additional equation and unknown -
+        eqnName = ['BCE for ',device.name];
+        eqnUnit = VOLTAGE_UNIT;
+        unknName = ['i(',device.name,')'];
+        unknUnit = CURRENT_UNIT;
+        [ckt, device.eqn, device.unkn] = addEqnUnkn(ckt, eqnName, eqnUnit, unknName, unknUnit);
+        device.phase = 0;
+        for i=1:length(deviceParms)/2
+            parmName = deviceParms{2*(i-1)+1};
+            parmValue = deviceParms{2*i};
+            switch parmName
+                case 'vol'
+                    device.voltage = parmValue;
+                % - sinewave -
+                case 'freq'
+                    device.freq = parmValue;
+                case 'phase'
+                    device.phase = parmValue;
+                case 'amplitude'
+                    device.amplitude = parmValue;
+                % - piece-wise constant -
+                case 'PWC'
+                    N = length(parmValue);
+                    device.pwc.time  = parmValue(1:2:N);
+                    device.pwc.value = parmValue(2:2:N);
+                % - piece-wise linear -
+                case 'PWL'
+                    if isstruct(parmValue)
+                        device.pwl = parmValue;
+                    else
+                        N = length(parmValue);
+                        device.pwl.time  = parmValue(1:2:N);
+                        device.pwl.value = parmValue(2:2:N);
+                    end
+                otherwise
+                    error(['Unknown parameter ''',parmName,''' of device ''',deviceName,'''']);
+                    return
+            end
+        end
+        
+    % - MOSFET -
+    case 'M'
+        modelParms = getParmValue(deviceParms, {}, 'model');
+        % - add model -
+        [ckt, modelIndex] = addModel(ckt, modelParms);
+        device.model = modelIndex;
+        % - independent of transistor model -
+        device.W = getParmValue(deviceParms, [], 'W'); % channel length
+        device.L = getParmValue(deviceParms, [], 'L'); % channel width
+        switch ckt.models{device.model}.model
+            % - Level-1 -
+            case 'mosRabaey'
+                % - nodes -
+                device.nodeD = nodeIndices(1);
+                device.nodeG = nodeIndices(2);
+                device.nodeS = nodeIndices(3);
+                device.nodeB = nodeIndices(4);
+              % comment by Fang
+              %  if (device.nodeS ~= device.nodeB)
+              %     error(['Source and bulk of ''',device.name,''' are at different nodes. Body effect not modeled.']);
+              % end        
+            % - EPFL EKV -
+            case 'EKV_v2.6'
+                % - nodes -
+                device.node = nodeIndices';
+                device.nodeNZ = find(device.node ~= 0);
+                device.cktVectNZ = device.node(device.nodeNZ);
+                device.M = getParmValue(deviceParms, 1,        'M' ); % parallel multiple device number                
+                device.M = getParmValue(deviceParms, device.M, 'NP'); % parallel multiple device number                
+                device.N = getParmValue(deviceParms, 1,        'N' ); % series   multiple device number
+                device.N = getParmValue(deviceParms, device.N, 'NS'); % series   multiple device number
+                if device.M ~= 1 | device.N ~= 1
+                    error('Current implementation of EKV model does not support parallel and series devices.')
+                end
+            otherwise
+                error(['Unsupported device model ''',device.model.model,'''']);
+        end
+        if ~(isfield(device,'W') & isfield(device,'L'))
+            error(['Not enough device parameters for ''',device.name,'''']);
+            return
+        end
+    
+    % - Add Diode model by Fang -
+    case 'D'
+        modelParms = getParmValue(deviceParms, {}, 'model');
+        % - add model -
+        [ckt, modelIndex] = addModel(ckt, modelParms);
+        device.model = modelIndex;
+        switch ckt.models{device.model}.model
+            case 'diode'
+                device.nodeP = nodeIndices(1);
+                device.nodeN = nodeIndices(2);
+        end
+    % - END -    
+    otherwise
+        error(['Unknown type of device ''',device.name,'''']);
+        return
+end
+
+ckt.numDevices = ckt.numDevices+1;
+device.index = ckt.numDevices;
+ckt.devices{ckt.numDevices} = device;
+ckt.devNames{ckt.numDevices} = device.name;
+
+return
